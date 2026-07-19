@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>内外传输一码通</title>
+    <meta name="description" content="基于二维码的跨网文件/文字传输工具">
+    <meta name="theme-color" content="#2563eb">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body{font-family:system-ui,-apple-system,sans-serif;-webkit-tap-highlight-color:transparent}
+        .qr-matrix canvas,.progress-bar,.tab-active,.mode-toggle .active,.qr-single canvas{transition:all .2s}
+        .qr-single{display:flex;justify-content:center;padding:20px;background:#fff;border-radius:24px;box-shadow:0 10px 40px rgba(0,0,0,.1)}
+        .qr-single canvas{width:100%!important;max-width:500px;height:auto!important}
+        .progress-bar{transition:width .3s ease;height:100%;background:#2563eb;border-radius:9999px}
+        .tab-active{background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.05);color:#2563eb}
+        .mode-toggle{position:relative;display:inline-flex;background:#e2e8f0;border-radius:20px;padding:2px;cursor:pointer}
+        .mode-toggle-option{padding:6px 14px;border-radius:18px;font-size:12px;font-weight:700;transition:all .2s;z-index:1}
+        .mode-toggle-option.active{background:#2563eb;color:#fff}
+        .qr-warning{background:#fff8e1;border:1px solid #ffc107;border-radius:12px;padding:10px 14px;font-size:12px;color:#e65100;margin-top:8px;display:none}
+        .qr-warning.show{display:block}
+        input[type=range]{-webkit-appearance:none;background:transparent}
+        input[type=range]::-webkit-slider-runnable-track{width:100%;height:6px;background:#e2e8f0;border-radius:3px}
+        input[type=range]::-webkit-slider-thumb{height:22px;width:22px;border-radius:50%;background:#2563eb;-webkit-appearance:none;margin-top:-8px;border:2px solid #fff;box-shadow:0 4px 10px rgba(0,0,0,.1)}
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen text-slate-900 pb-20">
+<div class="max-w-xl mx-auto px-4 pt-6">
+    <div class="flex justify-between items-center mb-6">
+        <div><h1 class="text-xl font-black text-slate-800 tracking-tight">内外传输一码通</h1><p class="text-xs text-slate-500 mt-0.5 font-bold">屏幕 ↔ 摄像头 · 涉密信息不上互联网</p><p class="text-[11px] text-slate-400 mt-0.5 font-bold">潍坊网安支队开发定制</p></div>
+        <div class="bg-gray-200 p-1 rounded-2xl flex text-sm font-bold shadow-inner w-48">
+            <button id="tab-s" onclick="switchTab('send')" class="flex-1 py-2 rounded-xl tab-active">发送</button>
+            <button id="tab-r" onclick="switchTab('receive')" class="flex-1 py-2 rounded-xl text-slate-500">接收</button>
+        </div>
+    </div>
+
+    <!-- SENDER -->
+    <div id="panel-send" class="space-y-4">
+        <div class="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100">
+            <textarea id="inputText" class="w-full p-5 bg-gray-50 border-2 border-dashed border-gray-200 rounded-2xl h-32 focus:border-blue-500 outline-none text-sm mb-4 resize-none" placeholder="输入文字内容..."></textarea>
+            <div id="fileInfo" class="hidden mb-4 p-4 bg-blue-50 rounded-2xl flex justify-between items-center">
+                <span id="fileName" class="text-xs font-bold text-blue-700 truncate mr-4"></span>
+                <button onclick="resetFile()" class="text-xs font-bold text-red-500">取消</button>
+            </div>
+            <div class="mb-4 flex items-center justify-between">
+                <span class="text-xs font-bold text-slate-500">传输模式</span>
+                <div class="mode-toggle" id="modeToggle">
+                    <span class="mode-toggle-option" onclick="switchMode('fountain')" id="modeFountain">喷泉码</span>
+                    <span class="mode-toggle-option active" onclick="switchMode('plain')" id="modePlain">纯文本</span>
+                </div>
+            </div>
+            <div class="mt-3 flex items-center gap-2" id="compressRow">
+                <input type="checkbox" id="chkCompress" onchange="senderCompress=this.checked;updateCompressUI()" class="w-4 h-4 accent-blue-600">
+                <label for="chkCompress" id="lblCompress" class="text-xs font-bold text-slate-600">文本压缩（减少密度 · 微信可扫）</label>
+            </div>
+            <div class="grid grid-cols-2 gap-4 mt-4">
+                <button onclick="document.getElementById('fileInput').click()" class="py-4 bg-gray-100 rounded-2xl font-bold text-sm">选文件</button>
+                <input type="file" id="fileInput" class="hidden">
+                <button id="btnStart" onclick="startSending()" class="py-4 bg-blue-600 text-white rounded-2xl font-bold text-sm shadow-xl active:scale-95 transition-all">开始发送</button>
+            </div>
+        </div>
+        <div id="playerBoxFountain" class="hidden space-y-4">
+            <div class="qr-single"><canvas id="qrFountain" class="w-full"></canvas></div>
+            <div class="bg-white p-6 rounded-[2rem] text-center">
+                <div class="text-3xl font-mono font-black text-blue-600 mb-1" id="fountainFrame">0</div>
+                <p class="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">喷泉码广播中</p>
+                <div id="sendStats" class="text-sm font-mono font-bold text-blue-600 mb-4">0 Chunks</div>
+                <div class="flex items-center justify-between mb-2 px-2">
+                    <span class="text-xs font-bold text-slate-500">分片: <span id="sizeVal" class="text-blue-600 font-mono">300</span> B</span>
+                    <input type="range" id="sizeRange" min="150" max="500" step="10" value="300" class="w-1/2" oninput="sender.chunkSize=parseInt(this.value);document.getElementById('sizeVal').innerText=this.value;if(sender.timer){stopSending();startSending()}">
+                </div>
+                <div class="flex items-center justify-between mb-4 px-2">
+                    <span class="text-xs font-bold text-slate-500">速度: <span id="fpsVal" class="text-blue-600 font-mono">8</span> FPS</span>
+                    <input type="range" id="fpsRange" min="2" max="20" value="8" class="w-1/2" oninput="sender.fps=parseInt(this.value);document.getElementById('fpsVal').innerText=this.value;if(sender.timer){clearInterval(sender.timer);sender.timer=setInterval(tick,1000/sender.fps)}">
+                </div>
+                <button onclick="stopSending()" class="px-8 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold">停止发送</button>
+            </div>
+        </div>
+        <div id="playerBoxPlain" class="hidden space-y-4">
+            <div class="qr-single"><canvas id="qrPlain" class="w-full"></canvas></div>
+            <div class="bg-white p-6 rounded-[2rem] text-center">
+                <p id="qrTitle" class="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">纯文本二维码 · 微信可扫</p>
+                <div id="qrWarning" class="qr-warning"><p>二维码密度较高，扫描时请将码放大并保持稳定</p></div>
+                <p id="plainHint" class="text-xs text-slate-500 mt-1"></p>
+                <button onclick="stopSending()" class="mt-4 px-8 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- RECEIVER -->
+    <div id="panel-receive" class="hidden space-y-4">
+        <div class="bg-white p-6 rounded-[2rem] shadow-sm">
+            <div id="reader" class="w-full aspect-square rounded-3xl bg-slate-900 overflow-hidden mb-6 flex items-center justify-center relative">
+                <video id="rv" class="hidden absolute inset-0 w-full h-full object-cover"></video>
+                <canvas id="rc" class="hidden absolute inset-0 w-full h-full"></canvas>
+                <p id="readerPlaceholder" class="text-slate-500 text-xs italic w-full text-center px-4">点击下方按钮启动摄像头</p>
+            </div>
+            <div class="mb-6">
+                <button onclick="startScanner('environment')" id="btnCamera" class="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold text-sm shadow-lg">启动摄像头扫码</button>
+            </div>
+            <div id="recvProgress" class="hidden space-y-4">
+                <div class="flex justify-between items-end">
+                    <div><p id="recvName" class="text-sm font-black text-slate-800 break-all"></p><p id="recvRank" class="text-[10px] font-bold text-blue-500 uppercase">Rank: 0/0</p></div>
+                    <div class="text-right"><span id="pctText" class="text-3xl font-mono font-black text-slate-900">0</span><span class="text-sm font-bold text-slate-400">%</span></div>
+                </div>
+                <div class="w-full h-4 bg-gray-100 rounded-full overflow-hidden"><div id="progressBar" class="progress-bar w-0"></div></div>
+            </div>
+        </div>
+        <div id="successCard" class="hidden bg-white p-6 rounded-[2rem] shadow-lg border border-emerald-200 space-y-4">
+            <div class="text-center"><h3 class="font-black text-lg text-emerald-600 mb-1">接收完成</h3><p id="finInfo" class="text-xs text-slate-500"></p></div>
+            <div id="textResultBox" class="hidden">
+                <p class="text-[10px] font-black text-slate-400 uppercase mb-2">文字内容</p>
+                <textarea id="textResult" readonly class="w-full h-40 p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm resize-y focus:outline-none"></textarea>
+                <button onclick="copyText()" class="mt-2 px-4 py-2 bg-gray-100 text-slate-700 rounded-xl text-xs font-bold">复制文字</button>
+            </div>
+            <button id="dlBtn" class="w-full py-5 bg-emerald-600 text-white rounded-2xl font-black shadow-lg">下载文件</button>
+            <button onclick="resetRecv()" class="w-full py-3 bg-gray-100 text-slate-500 rounded-xl font-bold text-xs">继续扫描下一个</button>
+        </div>
+    </div>
+
+    <!-- 使用教程 -->
+    <div class="bg-gray-100 rounded-2xl p-5 space-y-3 mt-6">
+        <h3 class="text-sm font-black text-slate-700 mb-3">使用教程 &amp; 注意事项</h3>
+        <div class="text-xs text-slate-600 space-y-2">
+            <p><b class="text-blue-600">纯文本模式</b> — 输入短文字，生成单个二维码。不勾压缩时微信可直接扫码阅读；勾上压缩后码更稀疏易扫，但需用本工具接收端解压还原。</p>
+            <p><b class="text-blue-600">喷泉码模式</b> — 适合传文件或长文本。单码循环播放喷泉编码包，接收端持续扫描即可自动收齐。分片越小越易扫但总帧数多，速度越高传得越快但要求接收端摄像头跟得上。</p>
+            <p><b class="text-blue-600">接收扫码</b> — 点击启动摄像头扫码，将摄像头对准发送端的二维码。纯文本模式扫一次即完成；喷泉码模式需持续对准直到进度到 100%。</p>
+            <p><b class="text-slate-500">提示：</b>屏幕亮度调至最高、避免反光、保持摄像头稳定可大幅提升识别率。手机屏幕尽量放大二维码。如频繁丢帧，请降低发送端分片大小和速度。</p>
+        </div>
+    </div>
+
+</div>
+<script>
+(function(){if('serviceWorker' in navigator){var m={name:"内外传输一码通",short_name:"一码通",start_url:location.href,display:"standalone",background_color:"#f9fafb",theme_color:"#2563eb",icons:[{src:"data:image/svg+xml,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192"><rect width="192" height="192" rx="32" fill="#2563eb"/><text x="96" y="110" text-anchor="middle" font-size="80" fill="white">码</text></svg>'),sizes:"192x192",type:"image/svg+xml"}]};var b=new Blob([JSON.stringify(m)],{type:'application/json'});var l=document.createElement('link');l.rel='manifest';l.href=URL.createObjectURL(b);document.head.appendChild(l)}})();
+
+var Utils={PRNG:function(s){return function(){s=(s*16807)%2147483647;return(s-1)/2147483646}},xor:function(a,b){for(var i=0;i<a.length;i++)a[i]^=b[i]},u2b:function(u8){return btoa(String.fromCharCode.apply(null,u8))},b2u:function(str){var b=atob(str);var u=new Uint8Array(b.length);for(var i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u},getDegree:function(L,rng){var p=rng();if(p<0.4)return 1;if(p<0.7)return 2;if(p<0.9)return Math.min(L,Math.floor(rng()*10)+3);return Math.min(L,Math.floor(rng()*L*.5)+2)},isTextData:function(u8){if(u8.length===0)return false;var s=u8.slice(0,Math.min(1000,u8.length));var n=0,c=0;for(var i=0;i<s.length;i++){if(s[i]===0)n++;else if(s[i]<9&&s[i]!==0x0a&&s[i]!==0x0d&&s[i]!==0x09)c++}if(n>s.length*.03||c>s.length*.02)return false;try{var t=new TextDecoder('utf-8',{fatal:true}).decode(u8);return t.length>0&&t.indexOf('\uFFFD')===-1}catch(e){return false}}};
+
+var senderMode='plain';
+var senderCompress=false;
+var sender={chunks:[],timer:null,tid:"",fileName:"",fileSize:0,chunkSize:300,fps:8,rawData:null,qrPlain:null,qrFountain:null};
+var recv={active:false,tid:"",total:0,solved:{},queue:[],fileName:"",fileSize:0,stream:null,isFinishing:false,currentChunkSize:0};
+
+function switchMode(mode){
+    senderCompress=false;document.getElementById('chkCompress').checked=false;updateCompressUI();
+    senderMode=mode;
+    document.getElementById('modeFountain').classList.toggle('active',mode==='fountain');
+    document.getElementById('modePlain').classList.toggle('active',mode==='plain');
+    document.getElementById('compressRow').style.display=(mode==='plain')?'flex':'none';
+    if(sender.timer)stopSending();
+}
+function updateCompressUI(){
+    var label=document.getElementById('lblCompress');
+    var title=document.getElementById('qrTitle');
+    if(senderCompress){label.className='text-xs font-bold text-red-600';label.innerText='压缩已启用 · 微信不可扫';title.className='text-xs font-black text-red-500 uppercase tracking-widest mb-1';title.innerText='纯文本二维码 · 微信不可扫'}
+    else{label.className='text-xs font-bold text-slate-600';label.innerText='文本压缩（减少密度 · 微信可扫）';title.className='text-xs font-black text-slate-400 uppercase tracking-widest mb-1';title.innerText='纯文本二维码 · 微信可扫'}
+    var text=document.getElementById('inputText').value.trim();
+    if(!text||!senderCompress){if(!senderCompress)document.getElementById('plainHint').innerText='';return}
+    var raw= new TextEncoder().encode(text).length;
+    var payload='Z:'+LZString.compressToEncodedURIComponent(text);
+    var out=new TextEncoder().encode(payload).length;
+    document.getElementById('plainHint').innerText=text.length+' 个字符 · '+raw+' 原始字节 · 压缩后 '+out+' 字节';
+}
+function initQrs(){
+    if(!sender.qrFountain){sender.qrFountain=new QRious({element:document.getElementById('qrFountain'),size:400,level:'L'})}
+    if(!sender.qrPlain){sender.qrPlain=new QRious({element:document.getElementById('qrPlain'),size:600,level:'L'})}
+}
+
+function startSending(){
+    var text=document.getElementById('inputText').value.trim();
+    var dataU8;
+    if(sender.rawData){dataU8=sender.rawData}else if(text){dataU8=new TextEncoder().encode(text);sender.fileName='文字_'+Date.now().toString().slice(-6)+'.txt';sender.fileSize=dataU8.length}else{return alert('请先输入文字或选择文件')}
+    if(senderMode==='plain'){
+        if(!text)return alert('纯文本模式需要输入文字，不能传输文件');
+        var rawBytes=new TextEncoder().encode(text).length;
+        var payload=text;
+        if(senderCompress&&typeof LZString!=='undefined'){payload='Z:'+LZString.compressToEncodedURIComponent(text)}
+        var outBytes=new TextEncoder().encode(payload).length;
+        if(outBytes>2500)return alert('文字过长（压缩后'+outBytes+'字节），请切换到喷泉码模式传输');
+        initQrs();sender.qrPlain.value=payload;
+        document.getElementById('playerBoxPlain').classList.remove('hidden');
+        document.getElementById('playerBoxFountain').classList.add('hidden');
+        var hint=text.length+' 个字符 · '+rawBytes+' 原始字节';
+        if(senderCompress)hint+=' · 压缩后 '+outBytes+' 字节';
+        document.getElementById('plainHint').innerText=hint;
+        document.getElementById('qrWarning').classList.toggle('show',outBytes>500);
+        document.getElementById('btnStart').innerText='已生成';return;
+    }
+    sender.chunkSize=parseInt(document.getElementById('sizeRange').value)||300;
+    sender.fps=parseInt(document.getElementById('fpsRange').value)||8;
+    sender.fileSize=dataU8.length;sender.chunks=[];
+    for(var i=0;i<dataU8.length;i+=sender.chunkSize){
+        var chunk=dataU8.slice(i,i+sender.chunkSize);
+        if(chunk.length<sender.chunkSize){var padded=new Uint8Array(sender.chunkSize);padded.set(chunk);chunk=padded}
+        sender.chunks.push(chunk)
+    }
+    sender.tid=Math.random().toString(36).slice(-3).toUpperCase();
+    document.getElementById('playerBoxPlain').classList.add('hidden');
+    document.getElementById('playerBoxFountain').classList.remove('hidden');
+    document.getElementById('fountainFrame').innerText='0/0';
+    document.getElementById('sendStats').innerText=sender.chunks.length+' Chunks';
+    document.getElementById('btnStart').innerText='正在发送...';
+    initQrs();sender.timer=setInterval(tick,1000/sender.fps)
+}
+
+function tick(){
+    var L=sender.chunks.length;
+    var meta=encodeURIComponent(sender.fileName)+':'+sender.fileSize;
+    var seed=Math.floor(Math.random()*1000000);var rng=Utils.PRNG(seed);
+    var d=Math.min(L,Utils.getDegree(L,rng));var idxs=[];
+    while(idxs.length<d){var x=Math.floor(rng()*L);if(idxs.indexOf(x)===-1)idxs.push(x)}
+    var xorBuf=new Uint8Array(sender.chunkSize);
+    idxs.forEach(function(idx){Utils.xor(xorBuf,sender.chunks[idx])});
+    sender.qrFountain.value=sender.tid+'|'+seed+'|'+L+'|'+Utils.u2b(xorBuf)+'|'+meta;
+    var fe=document.getElementById('fountainFrame');if(fe){var cnt=parseInt(fe.innerText||0);if(cnt>=L)cnt=0;cnt++;fe.innerText=cnt+'/'+L}
+}
+
+function stopSending(){clearInterval(sender.timer);sender.timer=null;document.getElementById('playerBoxFountain').classList.add('hidden');document.getElementById('playerBoxPlain').classList.add('hidden');document.getElementById('btnStart').innerText='开始发送'}
+
+function startScanner(mode){
+    if(recv.active){stopScanner();return}
+    var ph=document.getElementById('readerPlaceholder');ph.innerText='正在启动摄像头...';recv.active=true;
+    document.getElementById('btnCamera').innerText='停止扫描';var video=document.getElementById('rv');
+    navigator.mediaDevices.getUserMedia({video:{facingMode:mode}}).then(function(stream){video.srcObject=stream;recv.stream=stream;return video.play()}).then(function(){video.classList.remove('hidden');ph.classList.add('hidden');requestAnimationFrame(scanLoop)}).catch(function(e){ph.innerText='摄像头启动失败: '+e.message;recv.active=false;document.getElementById('btnCamera').innerText='启动摄像头扫码'})
+}
+function stopScanner(){recv.active=false;if(recv.stream){recv.stream.getTracks().forEach(function(t){t.stop()});recv.stream=null}document.getElementById('rv').classList.add('hidden');document.getElementById('readerPlaceholder').classList.remove('hidden');document.getElementById('readerPlaceholder').innerText='扫描已停止';document.getElementById('btnCamera').innerText='启动摄像头扫码'}
+function scanLoop(){if(!recv.active)return;var video=document.getElementById('rv');var canvas=document.getElementById('rc');if(video.readyState===video.HAVE_ENOUGH_DATA){canvas.width=video.videoWidth;canvas.height=video.videoHeight;var ctx=canvas.getContext('2d');ctx.drawImage(video,0,0);var w=canvas.width,h=canvas.height;var regions=[{x:0,y:0,w:w,h:h},{x:0,y:0,w:w/2,h:h/2},{x:w/2,y:0,w:w/2,h:h/2},{x:0,y:h/2,w:w/2,h:h/2},{x:w/2,y:h/2,w:w/2,h:h/2}];regions.forEach(function(r){var imgData=ctx.getImageData(r.x,r.y,r.w,r.h);var code=jsQR(imgData.data,imgData.width,imgData.height);if(code)handleScanResult(code.data)})}requestAnimationFrame(scanLoop)}
+function handleScanResult(raw){var p=raw.split('|');if(p.length>=5&&!isNaN(parseInt(p[1]))&&!isNaN(parseInt(p[2]))){handleFountainPacket(raw);return}handlePlainText(raw)}
+function handlePlainText(text){if(!recv.active||recv.isFinishing)return;stopScanner();if(text.indexOf('Z:')===0&&typeof LZString!=='undefined'){try{text=LZString.decompressFromEncodedURIComponent(text.substring(2))}catch(e){}}var u8=new TextEncoder().encode(text);recv.fileName='扫码文字_'+Date.now().toString().slice(-6)+'.txt';recv.fileSize=u8.length;document.getElementById('recvProgress').classList.remove('hidden');document.getElementById('recvName').innerText=recv.fileName;document.getElementById('progressBar').style.width='100%';document.getElementById('pctText').innerText='100';document.getElementById('recvRank').innerText='纯文本';showResult(u8)}
+function handleFountainPacket(raw){if(!recv.active||recv.isFinishing)return;var p=raw.split('|');if(p.length<5)return;var tid=p[0],seed=parseInt(p[1]),total=parseInt(p[2]),b64=p[3],meta=p[4];if(recv.tid!==tid){recv.tid=tid;recv.total=total;recv.solved={};recv.queue=[];recv.isFinishing=false;var parts=meta.split(':');recv.fileName=decodeURIComponent(parts[0]);recv.fileSize=parseInt(parts[1]);recv.currentChunkSize=Utils.b2u(b64).length;document.getElementById('recvProgress').classList.remove('hidden');document.getElementById('recvName').innerText=recv.fileName;document.getElementById('successCard').classList.add('hidden')}if(Object.keys(recv.solved).length<recv.total){processPacket(seed,total,Utils.b2u(b64))}}
+function processPacket(seed,L,data){if(recv.isFinishing)return;var rng=Utils.PRNG(seed);var d=Utils.getDegree(L,rng);var idxs=[];while(idxs.length<d){var x=Math.floor(rng()*L);if(idxs.indexOf(x)===-1)idxs.push(x)}if(L===1){if(!recv.solved[0]){recv.solved[0]=data}updateRecvUI();return}var curData=data;var curIdxs=idxs.sort(function(a,b){return a-b});for(var i=0;i<curIdxs.length;i++){var idx=curIdxs[i];if(recv.solved[idx]){Utils.xor(curData,recv.solved[idx]);curIdxs.splice(i,1);i--}}if(curIdxs.length===0)return;for(var j=0;j<recv.queue.length;j++){if(curIdxs.length===0)break;var item=recv.queue[j];if(item.idxs[0]===curIdxs[0]){Utils.xor(curData,item.u8);curIdxs=xorIdxLists(curIdxs,item.idxs)}else if(item.idxs[0]>curIdxs[0])break}if(curIdxs.length>0){recv.queue.push({idxs:curIdxs,u8:curData});recv.queue.sort(function(a,b){return a.idxs[0]-b.idxs[0]})}var foundNew=true;while(foundNew){foundNew=false;for(var k=0;k<recv.queue.length;k++){if(recv.queue[k].idxs.length===1){var sIdx=recv.queue[k].idxs[0];var sData=recv.queue[k].u8;recv.solved[sIdx]=sData;recv.queue.splice(k,1);foundNew=true;recv.queue.forEach(function(it){if(it.idxs.indexOf(sIdx)!==-1){Utils.xor(it.u8,sData);it.idxs=it.idxs.filter(function(id){return id!==sIdx})}});break}}}updateRecvUI()}
+function xorIdxLists(a,b){var s=new Set(a);b.forEach(function(x){s.has(x)?s.delete(x):s.add(x)});return Array.from(s).sort(function(n1,n2){return n1-n2})}
+function updateRecvUI(){var done=Object.keys(recv.solved).length;var pct=Math.min(100,Math.floor((done/recv.total)*100));document.getElementById('progressBar').style.width=pct+'%';document.getElementById('pctText').innerText=pct;document.getElementById('recvRank').innerText='Rank: '+done+' / '+recv.total;if(done>=recv.total)finalizeRecv()}
+function finalizeRecv(){if(recv.isFinishing)return;recv.isFinishing=true;stopScanner();var finalU8=new Uint8Array(recv.fileSize);for(var i=0;i<recv.total;i++){var start=i*recv.currentChunkSize;if(start<recv.fileSize){var len=Math.min(recv.currentChunkSize,recv.fileSize-start);if(recv.solved[i])finalU8.set(recv.solved[i].slice(0,len),start)}}showResult(finalU8)}
+function showResult(u8){var blob=new Blob([u8],{type:'application/octet-stream'});document.getElementById('successCard').classList.remove('hidden');document.getElementById('finInfo').innerText=recv.fileName+' ('+(recv.fileSize/1024).toFixed(1)+' KB)';document.getElementById('dlBtn').onclick=function(){var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=recv.fileName;a.click()};var tb=document.getElementById('textResultBox');var ta=document.getElementById('textResult');if(Utils.isTextData(u8)){ta.value=new TextDecoder('utf-8').decode(u8);tb.classList.remove('hidden')}else{ta.value='';tb.classList.add('hidden')}}
+function copyText(){var ta=document.getElementById('textResult');ta.select();document.execCommand('copy');ta.setSelectionRange(0,0);ta.blur();var btn=event.target;var o=btn.innerText;btn.innerText='已复制!';setTimeout(function(){btn.innerText=o},1500)}
+function resetRecv(){recv={active:false,tid:"",total:0,solved:{},queue:[],fileName:"",fileSize:0,stream:null,isFinishing:false,currentChunkSize:0};document.getElementById('successCard').classList.add('hidden');document.getElementById('recvProgress').classList.add('hidden');document.getElementById('progressBar').style.width='0%';document.getElementById('textResult').value='';document.getElementById('textResultBox').classList.add('hidden')}
+function switchTab(t){if(recv.active)stopScanner();if(sender.timer)stopSending();document.getElementById('panel-send').classList.toggle('hidden',t!=='send');document.getElementById('panel-receive').classList.toggle('hidden',t!=='receive');document.getElementById('tab-s').className=t==='send'?'flex-1 py-2 rounded-xl tab-active':'flex-1 py-2 rounded-xl text-slate-500';document.getElementById('tab-r').className=t==='receive'?'flex-1 py-2 rounded-xl tab-active':'flex-1 py-2 rounded-xl text-slate-500'}
+document.getElementById('fileInput').onchange=function(e){var f=e.target.files[0];if(!f)return;sender.fileName=f.name;var r=new FileReader();r.onload=function(ev){sender.rawData=new Uint8Array(ev.target.result);document.getElementById('fileInfo').classList.remove('hidden');document.getElementById('fileName').innerText=f.name+' ('+(sender.rawData.length/1024).toFixed(1)+' KB)'};r.readAsArrayBuffer(f)};
+function resetFile(){sender.rawData=null;document.getElementById('fileInfo').classList.add('hidden');document.getElementById('fileInput').value=''}
+initQrs();
+</script>
+</body>
+</html>
